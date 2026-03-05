@@ -43,7 +43,7 @@
 <div class="modal-overlay" id="addUserModal">
   <div class="modal modal-sm">
     <div class="modal-header">
-      <span class="modal-title" id="userModalTitle"><span data-i18n="userBtnAdd">إضافة مستخدم</span>
+      <span class="modal-title" id="userModalTitle"><span data-i18n="userBtnAdd">إضافة مستخدم</span></span>
       <button class="modal-close" onclick="closeModal('addUserModal')">✕</button>
     </div>
     <input type="hidden" id="editUserId"/>
@@ -152,10 +152,11 @@ async function loadUsers() {
     const isAdmin = u.role === 'admin';
     const actions = isAdmin
       ? `<button class="btn btn-sm btn-warning" onclick="openModal('adminPassModal')">🔑 تغيير كلمة المرور</button>`
-      : `<button class="btn btn-sm btn-primary" onclick="editUser(${u.id})">✏️</button>
-         <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">🗑️</button>`;
+      : `<button class="btn btn-sm btn-primary" onclick="editUser(${u.id})">✏️ تعديل</button>
+         <button class="btn btn-sm btn-danger"  onclick="deleteUser(${u.id})">🗑️ حذف</button>`;
+    const adminBadge = isAdmin ? `<span style="font-size:0.72rem;color:var(--warning);display:block;">لا يمكن تعديل المدير الرئيسي إلا من هنا</span>` : '';
     return `<tr>
-      <td><b>${u.username}</b></td>
+      <td><b>${u.username}</b>${adminBadge}</td>
       <td><span class="badge ${u.role==='admin'?'badge-primary':u.role==='manager'?'badge-info':'badge-success'}">${ROLE_LABELS[u.role]||u.role}</span></td>
       <td>${formatDate(u.createdAt)}</td>
       <td class="actions">${actions}</td>
@@ -163,26 +164,44 @@ async function loadUsers() {
   }).join('');
 }
 
-async async function saveUser() {
-  const id = document.getElementById('editUserId').value;
+async function saveUser() {
+  const id       = document.getElementById('editUserId').value;
   const username = document.getElementById('userUsername').value.trim();
   const password = document.getElementById('userPassword').value.trim();
-  const role = document.getElementById('userRole').value;
+  const role     = document.getElementById('userRole').value;
+
   if (!username) { toast('اسم المستخدم مطلوب', 'warning'); return; }
-  const data = { username, role, createdAt: new Date().toISOString() };
-  if (password) data.password = await hashPasswordSHA(password);
+
+  // تحقق من تكرار الاسم
+  const allUsers = await dbGetAll('users');
+  const dup = allUsers.find(u => u.username === username && u.id !== parseInt(id));
+  if (dup) { toast('اسم المستخدم موجود مسبقاً', 'warning'); return; }
+
   if (id) {
+    // تعديل مستخدم موجود
     const existing = await dbGet('users', parseInt(id));
-    data.id = parseInt(id);
-    if (!password) data.password = existing.password;
+    const data = {
+      id      : parseInt(id),
+      username: username,
+      role    : role,
+      createdAt: existing.createdAt || new Date().toISOString(),
+      password: password ? await hashPasswordSHA(password) : existing.password
+    };
     await dbPut('users', data);
-    toast('تم التعديل ✅', 'success');
+    toast('تم تعديل المستخدم ✅', 'success');
   } else {
-    if (!password) { toast('الرقم السري مطلوب', 'warning'); return; }
-    data.password = await hashPasswordSHA(password);
+    // إضافة مستخدم جديد
+    if (!password) { toast('الرقم السري مطلوب للمستخدم الجديد', 'warning'); return; }
+    const data = {
+      username : username,
+      role     : role,
+      password : await hashPasswordSHA(password),
+      createdAt: new Date().toISOString()
+    };
     await dbAdd('users', data);
-    toast('تمت الإضافة ✅', 'success');
+    toast('تمت إضافة المستخدم ✅', 'success');
   }
+
   closeModal('addUserModal');
   clearUserForm();
   loadUsers();
@@ -209,17 +228,22 @@ async function deleteUser(id) {
   loadUsers();
 }
 
-async async function changeAdminPass() {
+async function changeAdminPass() {
   const oldPass = document.getElementById('oldPass').value;
   const newPass = document.getElementById('newPass').value;
   if (!oldPass || !newPass) { toast('يرجى ملء الحقول', 'warning'); return; }
+  if (newPass.length < 4)   { toast('الرقم السري الجديد قصير جداً (4 أحرف على الأقل)', 'warning'); return; }
   const users = await dbGetAll('users');
   const admin = users.find(u => u.role === 'admin');
-  const oldOk = await verifyPassword(oldPass, admin.password); if (!oldOk) { toast('الرقم السري الحالي غير صحيح', 'error'); return; }
+  if (!admin) { toast('لم يتم العثور على المدير الرئيسي', 'error'); return; }
+  const oldOk = await verifyPassword(oldPass, admin.password);
+  if (!oldOk) { toast('الرقم السري الحالي غير صحيح', 'error'); return; }
   admin.password = await hashPasswordSHA(newPass);
   await dbPut('users', admin);
-  toast('تم تغيير كلمة المرور ✅', 'success');
+  toast('تم تغيير كلمة المرور بنجاح ✅', 'success');
   try { notifPasswordChange(admin.username); } catch(e) {}
+  document.getElementById('oldPass').value = '';
+  document.getElementById('newPass').value = '';
   closeModal('adminPassModal');
 }
 
