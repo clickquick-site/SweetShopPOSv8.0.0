@@ -109,6 +109,7 @@
     <div id="debtDetailContent"></div>
     <div class="modal-footer" style="justify-content:space-between;">
       <button class="btn btn-primary btn-sm" onclick="viewPaymentHistory(activeDebtCustomerId)">📜 سجل الدفعات</button>
+      <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;font-weight:700;" onclick="openInterestModal(activeDebtCustomerId)">💹 إضافة فائدة</button>
       <button class="btn btn-secondary" onclick="closeModal('debtDetailModal')">إغلاق</button>
     </div>
   </div>
@@ -130,6 +131,51 @@
     <div class="modal-footer">
       <button class="btn btn-success" onclick="confirmPartialPay()">✅ تأكيد الدفع</button>
       <button class="btn btn-secondary" onclick="closeModal('partialPayModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Modal: إضافة فائدة على الديون ══ -->
+<div class="modal-overlay" id="interestModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <span class="modal-title">💹 إضافة فائدة على الديون</span>
+      <button class="modal-close" onclick="closeModal('interestModal')">✕</button>
+    </div>
+    <div id="interestCustomerInfo" style="background:var(--bg-dark);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:0.9rem;"></div>
+
+    <div class="input-group" style="margin-bottom:12px;">
+      <label class="input-label">🧮 طريقة حساب الفائدة</label>
+      <select class="select-field" id="interestType" onchange="toggleInterestFields()">
+        <option value="daily">📆 يومية — المبلغ × النسبة × عدد الأيام ÷ 365</option>
+        <option value="monthly">🗓️ شهرية — المبلغ × النسبة × عدد الأشهر</option>
+        <option value="fixed">🔒 مبلغ ثابت</option>
+      </select>
+    </div>
+
+    <div class="input-group" style="margin-bottom:12px;" id="interestRateGroup">
+      <label class="input-label">النسبة % (مثال: 2 = 2%)</label>
+      <input class="input-field" type="number" id="interestRate" min="0" max="100" step="0.5"
+        placeholder="2" style="text-align:center;font-size:1.1rem;font-weight:700;" oninput="recalcInterest()"/>
+    </div>
+
+    <div class="input-group" style="margin-bottom:12px;" id="interestFixedGroup" style="display:none;">
+      <label class="input-label">💵 المبلغ الثابت للفائدة</label>
+      <input class="input-field" type="number" id="interestFixedAmount" min="0" step="0.01"
+        placeholder="0.00" style="text-align:center;font-size:1.1rem;" oninput="recalcInterest()"/>
+    </div>
+
+    <!-- معاينة النتيجة -->
+    <div id="interestPreview" style="display:none;border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:14px;"></div>
+
+    <div class="input-group" style="margin-bottom:14px;">
+      <label class="input-label">📝 ملاحظة (اختياري)</label>
+      <input class="input-field" type="text" id="interestNote" placeholder="فائدة شهر مارس..."/>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-warning" style="flex:2;font-weight:800;" onclick="applyInterest()">💹 تطبيق الفائدة</button>
+      <button class="btn btn-secondary" onclick="closeModal('interestModal')">إلغاء</button>
     </div>
   </div>
 </div>
@@ -655,6 +701,178 @@ async function viewPaymentHistory(customerId) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 💹 نظام الفائدة على الديون
+// ══════════════════════════════════════════════════════════════
+let _interestCustomerId = null;
+
+async function openInterestModal(customerId) {
+  if (!customerId) return;
+  _interestCustomerId = customerId;
+  const c       = allCustomers.find(x => x.id === customerId);
+  const unpaid  = allDebts.filter(d => d.customerId === customerId && !d.isPaid);
+  const total   = unpaid.reduce((s, d) => s + d.amount, 0);
+
+  if (!unpaid.length) {
+    toast('لا توجد ديون قائمة لهذا الزبون', 'info');
+    return;
+  }
+
+  // تحميل الإعدادات الافتراضية من الإعدادات
+  const defaultRate = parseFloat(await getSetting('debtInterestRate')) || 0;
+  const defaultType = await getSetting('debtInterestType') || 'daily';
+
+  document.getElementById('interestCustomerInfo').innerHTML =
+    `<b style="color:var(--primary-light);">👤 ${c ? c.name : ''}</b>
+     &nbsp;|&nbsp; عدد الديون: <b>${unpaid.length}</b>
+     &nbsp;|&nbsp; إجمالي الديون: <b style="color:var(--danger);">${total.toFixed(2)} ${currency}</b>`;
+
+  document.getElementById('interestType').value         = defaultType;
+  document.getElementById('interestRate').value         = defaultRate || '';
+  document.getElementById('interestFixedAmount').value  = '';
+  document.getElementById('interestNote').value         = '';
+  document.getElementById('interestPreview').style.display = 'none';
+
+  toggleInterestFields();
+  closeModal('debtDetailModal');
+  openModal('interestModal');
+}
+
+function toggleInterestFields() {
+  const type = document.getElementById('interestType').value;
+  document.getElementById('interestRateGroup').style.display  = type === 'fixed' ? 'none' : '';
+  document.getElementById('interestFixedGroup').style.display = type === 'fixed' ? ''     : 'none';
+  recalcInterest();
+}
+
+function recalcInterest() {
+  if (!_interestCustomerId) return;
+  const type    = document.getElementById('interestType').value;
+  const rate    = parseFloat(document.getElementById('interestRate').value) / 100 || 0;
+  const fixed   = parseFloat(document.getElementById('interestFixedAmount').value) || 0;
+  const unpaid  = allDebts.filter(d => d.customerId === _interestCustomerId && !d.isPaid);
+  const prev    = document.getElementById('interestPreview');
+
+  if (!unpaid.length) { prev.style.display = 'none'; return; }
+
+  let totalInterest = 0;
+  const lines = unpaid.map(d => {
+    const daysAgo   = Math.max(1, Math.floor((Date.now() - new Date(d.date)) / 86400000));
+    const monthsAgo = Math.max(1, Math.round(daysAgo / 30));
+    let interest = 0;
+    if      (type === 'daily')   interest = d.amount * rate * daysAgo / 365;
+    else if (type === 'monthly') interest = d.amount * rate * monthsAgo;
+    else                          interest = fixed;
+    totalInterest += interest;
+    return `<div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+      <span style="color:var(--text-secondary);">${d.amount.toFixed(2)} ${currency} (${daysAgo} يوم)</span>
+      <span style="color:#f59e0b;font-weight:700;">+${interest.toFixed(2)} ${currency}</span>
+    </div>`;
+  }).join('');
+
+  if (totalInterest <= 0) { prev.style.display = 'none'; return; }
+
+  prev.style.display    = '';
+  prev.style.background = 'rgba(245,158,11,0.1)';
+  prev.style.border     = '1px solid rgba(245,158,11,0.3)';
+  prev.innerHTML = `
+    <div style="font-size:0.78rem;font-weight:700;color:#f59e0b;margin-bottom:6px;">📊 تفصيل الفائدة لكل دين:</div>
+    ${lines}
+    <div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:2px solid rgba(245,158,11,0.4);">
+      <span style="font-weight:800;color:var(--text-primary);">إجمالي الفائدة:</span>
+      <span style="font-weight:900;font-size:1.1rem;color:#f59e0b;">${totalInterest.toFixed(2)} ${currency}</span>
+    </div>`;
+}
+
+async function applyInterest() {
+  if (!_interestCustomerId) return;
+  const type    = document.getElementById('interestType').value;
+  const rate    = parseFloat(document.getElementById('interestRate').value) / 100 || 0;
+  const fixed   = parseFloat(document.getElementById('interestFixedAmount').value) || 0;
+  const note    = document.getElementById('interestNote').value.trim() || 'فائدة على الدين';
+  const unpaid  = allDebts.filter(d => d.customerId === _interestCustomerId && !d.isPaid);
+  const c       = allCustomers.find(x => x.id === _interestCustomerId);
+
+  if (!unpaid.length) { toast('لا توجد ديون قائمة', 'warning'); return; }
+
+  // حساب مجموع الفائدة
+  let totalInterest = 0;
+  unpaid.forEach(d => {
+    const daysAgo   = Math.max(1, Math.floor((Date.now() - new Date(d.date)) / 86400000));
+    const monthsAgo = Math.max(1, Math.round(daysAgo / 30));
+    if      (type === 'daily')   totalInterest += d.amount * rate * daysAgo / 365;
+    else if (type === 'monthly') totalInterest += d.amount * rate * monthsAgo;
+    else                          totalInterest += fixed;
+  });
+
+  if (totalInterest <= 0) { toast('مبلغ الفائدة يساوي صفر، تحقق من النسبة', 'warning'); return; }
+
+  const confirmed = await customConfirmAsync(
+    `إضافة فائدة بمبلغ ${totalInterest.toFixed(2)} ${currency} على ديون ${c ? c.name : ''}؟\n\nسيتم إضافتها كدين جديد.`
+  );
+  if (!confirmed) return;
+
+  // أضف الفائدة كدين جديد (مثل بيع منتج عادي)
+  const invoiceNumber = await getNextInvoiceNumber();
+  const now           = new Date().toISOString();
+  const user          = getSession();
+
+  // سجّل في sales كبيع عادي نوعه فائدة
+  const saleId = await dbAdd('sales', {
+    invoiceNumber,
+    userId    : user?.id || 0,
+    customerId: _interestCustomerId,
+    total     : totalInterest,
+    discount  : 0,
+    paid      : 0,
+    isDebt    : 1,
+    isCancelled: 0,
+    date      : now,
+    note      : `💹 ${note}`
+  });
+
+  // سجّل بنود البيع
+  await dbAdd('saleItems', {
+    saleId,
+    productId  : 0,
+    productName: `💹 فائدة — ${note}`,
+    quantity   : 1,
+    unitPrice  : totalInterest,
+    total      : totalInterest,
+    isInterest : 1,
+    date       : now
+  });
+
+  // سجّل كدين
+  await dbAdd('debts', {
+    customerId    : _interestCustomerId,
+    saleId,
+    amount        : totalInterest,
+    originalAmount: totalInterest,
+    isPaid        : 0,
+    date          : now,
+    isInterest    : 1,
+    interestType  : type,
+    interestRate  : type !== 'fixed' ? (rate * 100) : 0,
+    note
+  });
+
+  await dbAdd('logs', {
+    action    : 'interest_added',
+    customerId: _interestCustomerId,
+    customerName: c ? c.name : '',
+    amount    : totalInterest,
+    type, note,
+    by        : user?.username || '—',
+    date      : now
+  });
+
+  toast(`✅ تم إضافة فائدة ${totalInterest.toFixed(2)} ${currency} لـ ${c ? c.name : ''}`, 'success', 4000);
+  closeModal('interestModal');
+  await loadAll();
+  viewDebts(_interestCustomerId);
 }
 
 function doLogout() { customConfirm('هل تريد تسجيل الخروج؟', () => { clearSession(); window.location.href = 'index.html'; }); }
