@@ -242,12 +242,12 @@
     <!-- التنقل بين الفواتير السابقة -->
     <div class="inv-nav-wrap">
       <button class="inv-nav-btn" id="invNavPrev"
-              onclick="navigateInvoice(-1)"
+              onclick="navigateInvoice(1)"
               title="الفاتورة السابقة" disabled>
         <i class="fa-solid fa-chevron-right"></i>
       </button>
       <button class="inv-nav-btn" id="invNavNext"
-              onclick="navigateInvoice(1)"
+              onclick="navigateInvoice(-1)"
               title="الفاتورة التالية" disabled>
         <i class="fa-solid fa-chevron-left"></i>
       </button>
@@ -436,11 +436,11 @@
         <i class="fa-solid fa-print"></i> طباعة
       </button>
       <button class="btn btn-secondary" style="flex:0 0 auto;"
-              onclick="navigateInvoice(-1)" id="detailNavPrev" title="السابقة">
+              onclick="navigateInvoice(1)" id="detailNavPrev" title="السابقة">
         <i class="fa-solid fa-chevron-right"></i>
       </button>
       <button class="btn btn-secondary" style="flex:0 0 auto;"
-              onclick="navigateInvoice(1)" id="detailNavNext" title="التالية">
+              onclick="navigateInvoice(-1)" id="detailNavNext" title="التالية">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
       <button class="btn btn-ghost" onclick="closeModal('invoiceDetailModal')">إغلاق</button>
