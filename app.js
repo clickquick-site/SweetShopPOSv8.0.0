@@ -380,8 +380,8 @@ async function printInvoice(sale, items) {
   const dateStr = D.getFullYear() + '/' + p2(D.getMonth()+1) + '/' + p2(D.getDate());
   const timeStr = p2(D.getHours()) + ':' + p2(D.getMinutes());
 
-  // رقم الفاتورة - invoiceNumber قد يكون رقماً أو نصاً
-  const invNum = String(sale.invoiceNumber || '');
+  // رقم الفاتورة — invoiceNumber يحتوي # مسبقاً من formatInvoiceNumber، نزيلها
+  const invNum = String(sale.invoiceNumber || '').replace(/^#+/, '');
   const lbl = sale.debtSettlement && sale.partialSettlement
     ? 'تسديد جزئي #' + invNum
     : sale.debtSettlement ? 'تسديد #' + invNum
@@ -463,6 +463,7 @@ table.items tbody tr+tr{border-top:1px dashed #ccc;}
 
   // ── الرأس: رقم الفاتورة | التاريخ الساعة ──
   H += SR(lbl, dateStr + ' ' + timeStr);
+  if (printedBy) H += SR('البائع:', printedBy);
   H += '<div class="line-d"></div>';
 
   // ── بيانات المتجر ──
@@ -534,11 +535,9 @@ table.items tbody tr+tr{border-top:1px dashed #ccc;}
        + '||||| ' + invNum + ' |||||'
        + '</div>';
 
-  // ── التذييل: فاتورة / البائع ──
+  // ── التذييل: رقم الفاتورة فقط ──
   H += '<div class="line-s"></div>';
   H += '<div class="ctr sm">فاتورة: #' + invNum + '</div>';
-  if (printedBy)
-    H += '<div class="ctr sm">البائع: ' + printedBy + '</div>';
   H += '<div class="line-s"></div>';
 
   H += '<br/><br/>';
