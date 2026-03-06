@@ -364,108 +364,105 @@ async function restoreBackup(input) {
 // ══════════════════════════════════════════════════════════════
 async function printInvoice(sale, items) {
   const g = k => getSetting(k);
-  const [sName,sPhone,sAddr,sWelcome,cur,sLogo,pSize,pLogo,pName,pPhone,pAddr,pWelcome,pBarcode] =
+  const [sName,sPhone,sAddr,sWelcome,cur,sLogo,pSize,
+         pLogo,pName,pPhone,pAddr,pWelcome,pBarcode] =
     await Promise.all(['storeName','storePhone','storeAddress','storeWelcome','currency',
       'storeLogo','paperSize','printLogo','printName','printPhone','printAddress',
       'printWelcome','printBarcode'].map(g));
 
-  // ── المستخدم الذي أصدر الفاتورة ──
-  const sess     = getSession();
+  const sess      = getSession();
   const printedBy = sess ? sess.username : '';
+  const is58      = (pSize === '58mm');
 
-  // ── أبعاد الورق ──
-  const is58  = (pSize === '58mm');
-  const pageW = is58 ? '58mm'  : '80mm';
-  // bodyW = pageW − هوامش @page (2mm × 2)
-  const bodyW = is58 ? '54mm'  : '76mm';
-
-  // ── أعمدة جدول المنتجات ──
-  const cN = is58 ? '20mm' : '28mm';
-  const cQ = is58 ?  '7mm' :  '8mm';
-  const cP = is58 ? '13mm' : '19mm';
-  const cT = is58 ? '14mm' : '21mm';
-
-  // ── التاريخ والساعة ──
+  // التاريخ والساعة
   const D   = new Date(sale.date || Date.now());
   const p2  = n => ('0' + n).slice(-2);
   const dateStr = D.getFullYear() + '/' + p2(D.getMonth()+1) + '/' + p2(D.getDate());
   const timeStr = p2(D.getHours()) + ':' + p2(D.getMinutes());
 
-  // ── عنوان الفاتورة ──
+  // رقم الفاتورة - invoiceNumber قد يكون رقماً أو نصاً
+  const invNum = String(sale.invoiceNumber || '');
   const lbl = sale.debtSettlement && sale.partialSettlement
-    ? 'فاتورة تسديد جزئي #' + sale.invoiceNumber
-    : sale.debtSettlement ? 'فاتورة تسديد #' + sale.invoiceNumber
-    : sale.isDebt         ? 'فاتورة دين #'   + sale.invoiceNumber
-    : 'فاتورة #' + sale.invoiceNumber;
+    ? 'تسديد جزئي #' + invNum
+    : sale.debtSettlement ? 'تسديد #' + invNum
+    : sale.isDebt         ? 'فاتورة دين #' + invNum
+    : 'فاتورة #' + invNum;
 
-  // ── العملة ──
+  // العملة - افتراضي DA إذا لم تُضبط
   const C = (cur && cur.trim()) ? cur.trim() : 'DA';
 
-  // ════════════════════════════════════════════════════
-  // CSS — كل صفوف المحاذاة بـ <table> ذات عمودين
-  // لأن float+RTL يبتر النص في الطابعات الحرارية
-  // ════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════
+  // CSS — بدون table للصفوف، نستخدم أسلوباً أبسط:
+  // كل صف = div واحد + span لليمين + span لليسار
+  // بـ display:block على الـ div و position relative
+  // هذا يتجنب مشاكل table-layout في RTL تماماً
+  // ═══════════════════════════════════════════════
+  const pw = is58 ? '58mm' : '80mm';
+  const bw = is58 ? '54mm' : '76mm';
+  // أعمدة الجدول — مجموعها = bw
+  const cN = is58 ? '20mm' : '27mm';
+  const cQ = is58 ?  '7mm' :  '8mm';
+  const cP = is58 ? '12mm' : '18mm';
+  const cT = is58 ? '15mm' : '23mm';
+
   const css = `
-@page { size: ${pageW} auto; margin: 2mm 2mm; }
-* { margin:0; padding:0; box-sizing:border-box; }
-html, body {
-  font-family: Tahoma, Arial, sans-serif;
-  font-size: 10pt;
-  color: #000;
-  background: #fff;
-  width: ${bodyW};
-  max-width: ${bodyW};
-  direction: rtl;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
+@page { size:${pw} auto; margin:2mm; }
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  font-family:Tahoma,Arial,sans-serif;
+  font-size:10pt;color:#000;background:#fff;
+  width:${bw};max-width:${bw};
+  direction:rtl;
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
 }
-/* صف عمودين: يمين | يسار — بـ table لا float */
-.r2 { width:100%; border-collapse:collapse; table-layout:auto; margin:1.5px 0; }
-.r2 td { padding:0 1px; vertical-align:middle; white-space:nowrap; font-weight:700; font-size:10pt; }
-.r2 .L { text-align:right; }   /* يمين الصفحة (RTL) */
-.r2 .R { text-align:left;  }   /* يسار الصفحة (RTL) */
-/* نص وسط */
-.ctr { text-align:center; display:block; }
-.bold { font-weight:900; }
-.big  { font-size:13pt; font-weight:900; }
-.sm   { font-size:8pt; color:#333; }
-/* فواصل */
-.line-d { border-top:1.5px solid #000; margin:3px 0; }
-.line-s { border-top:1px   dashed #000; margin:2px 0; }
+/* صف بعمودين: يمين ثابت العرض + يسار يمتد */
+.row{display:block;width:100%;overflow:hidden;margin:1.5px 0;font-size:10pt;font-weight:700;}
+.row .rr{display:inline-block;text-align:right;}
+.row .ll{display:inline-block;text-align:left;float:none;direction:ltr;}
+/* الصف يستخدم table حقيقية بعرض ثابت */
+.sr{width:100%;border-collapse:collapse;margin:1.5px 0;}
+.sr td{padding:0 1px;vertical-align:middle;font-size:10pt;font-weight:700;}
+.sr .sc{white-space:nowrap;}       /* عمود ثابت لا يكسر */
+.sr .sf{width:100%;white-space:nowrap;} /* عمود يمتد */
+.ctr{text-align:center;display:block;}
+.bold{font-weight:900;}
+.big{font-size:13pt;font-weight:900;}
+.sm{font-size:8pt;}
+.line-d{border-top:1.5px solid #000;margin:3px 0;}
+.line-s{border-top:1px dashed #000;margin:2px 0;}
 /* جدول المنتجات */
-table.items { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9pt; margin:2px 0; }
-table.items thead tr { border-bottom:1.5px solid #000; }
-table.items th { font-weight:900; padding:2px 1px; text-align:right; overflow:hidden; }
-table.items td { padding:2px 1px; font-weight:700; vertical-align:top; word-break:break-word; overflow:hidden; }
-table.items tbody tr + tr { border-top:1px dashed #ccc; }
-.col-n { width:${cN}; text-align:right; }
-.col-q { width:${cQ}; text-align:center; }
-.col-p { width:${cP}; text-align:right; }
-.col-t { width:${cT}; text-align:right; font-weight:900; }
-/* صف الإجمالي — خط أكبر */
-.r2.big td { font-size:13pt; font-weight:900; }
-@media print { * { color:#000 !important; background:transparent !important; } }
+table.items{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9pt;margin:2px 0;}
+table.items thead tr{border-bottom:1.5px solid #000;}
+table.items th{font-weight:900;padding:2px 1px;text-align:right;overflow:hidden;}
+table.items td{padding:2px 1px;font-weight:700;vertical-align:top;overflow:hidden;word-break:break-word;}
+table.items tbody tr+tr{border-top:1px dashed #ccc;}
+.cn{width:${cN};text-align:right;}
+.cq{width:${cQ};text-align:center;}
+.cp{width:${cP};text-align:right;}
+.ct{width:${cT};text-align:right;font-weight:900;}
+.big-row td{font-size:13pt;font-weight:900;}
+@media print{*{color:#000!important;background:transparent!important;}}
 `;
 
-  // دالة مساعدة: صف ذو عمودين بـ table
-  // right = النص الذي يظهر على اليمين في RTL
-  // left  = النص الذي يظهر على اليسار  في RTL
-  const R2 = (right, left, cls='') =>
-    `<table class="r2 ${cls}"><tr>`
-    + `<td class="L">${right}</td>`
-    + `<td class="R">${left}</td>`
-    + `</tr></table>`;
+  // دالة صف بعمودين — يمين ثابت | يسار يمتد
+  // نستخدم table بعمودين: الأول width=auto (ثابت بالنص)، الثاني width=100%
+  // في RTL: الأول يمين، الثاني يسار
+  const SR = (rightTxt, leftTxt, bigRow) => {
+    const rc = bigRow ? ' big-row' : '';
+    return `<table class="sr${rc}"><tr>`
+      + `<td class="sc" style="text-align:right">${rightTxt}</td>`
+      + `<td class="sf" style="text-align:left">${leftTxt}</td>`
+      + `</tr></table>`;
+  };
 
-  // ════════════════════════════════════════════════════
-  // بناء HTML
-  // ════════════════════════════════════════════════════
   let H = '<!DOCTYPE html><html dir="rtl" lang="ar"><head>'
         + '<meta charset="UTF-8">'
         + '<style>' + css + '</style>'
         + '</head><body>';
 
-  // ── سطر 1: رقم الفاتورة (يمين) | التاريخ + الساعة (يسار) ──
-  H += R2(lbl, dateStr + '\u00a0' + timeStr);
+  // ── الرأس: رقم الفاتورة | التاريخ الساعة ──
+  H += SR(lbl, dateStr + ' ' + timeStr);
   H += '<div class="line-d"></div>';
 
   // ── بيانات المتجر ──
@@ -482,33 +479,28 @@ table.items tbody tr + tr { border-top:1px dashed #ccc; }
 
   // ── بيانات الزبون ──
   if (sale.customerName) {
-    H += R2('<b>الزبون:</b>', sale.customerName);
-    if (sale.customerPhone)
-      H += R2('الهاتف:', sale.customerPhone);
+    H += SR('<b>الزبون:</b>', sale.customerName);
+    if (sale.customerPhone) H += SR('الهاتف:', sale.customerPhone);
     H += '<div class="line-d"></div>';
   }
 
   // ── جدول المنتجات ──
   H += '<table class="items"><thead><tr>'
-     + '<th class="col-n">المنتج</th>'
-     + '<th class="col-q">ك</th>'
-     + '<th class="col-p">السعر</th>'
-     + '<th class="col-t">المجموع</th>'
+     + '<th class="cn">المنتج</th>'
+     + '<th class="cq">ك</th>'
+     + '<th class="cp">السعر</th>'
+     + '<th class="ct">المجموع</th>'
      + '</tr></thead><tbody>';
-
   items.forEach(function(item) {
-    const maxLen = is58 ? 12 : 16;
-    const nm  = (item.productName||'—').length > maxLen
-                ? (item.productName||'—').slice(0, maxLen-1) + '\u2026'
-                : (item.productName||'—');
-    const up  = parseFloat(item.unitPrice||0).toFixed(2);
-    const tot = parseFloat(item.total||0).toFixed(2);
-    const qty = parseFloat(item.quantity||1);
+    const maxL = is58 ? 12 : 15;
+    const nm   = (item.productName||'—').length > maxL
+                 ? (item.productName||'—').slice(0,maxL-1) + '\u2026'
+                 : (item.productName||'—');
     H += '<tr>'
-       + '<td class="col-n">'+nm+'</td>'
-       + '<td class="col-q">'+qty+'</td>'
-       + '<td class="col-p">'+up+'</td>'
-       + '<td class="col-t">'+tot+'</td>'
+       + '<td class="cn">'+nm+'</td>'
+       + '<td class="cq">'+parseFloat(item.quantity||1)+'</td>'
+       + '<td class="cp">'+parseFloat(item.unitPrice||0).toFixed(2)+'</td>'
+       + '<td class="ct">'+parseFloat(item.total||0).toFixed(2)+' '+C+'</td>'
        + '</tr>';
   });
   H += '</tbody></table>';
@@ -516,19 +508,19 @@ table.items tbody tr + tr { border-top:1px dashed #ccc; }
 
   // ── الإجماليات ──
   if (parseFloat(sale.discount||0) > 0)
-    H += R2('<b>الخصم:</b>', '&minus; ' + parseFloat(sale.discount).toFixed(2) + ' ' + C);
+    H += SR('<b>الخصم:</b>', '- ' + parseFloat(sale.discount).toFixed(2) + ' ' + C);
 
-  H += R2('<b>الإجمالي:</b>', parseFloat(sale.total||0).toFixed(2) + ' ' + C, 'big');
+  H += SR('<b>الإجمالي:</b>', parseFloat(sale.total||0).toFixed(2) + ' ' + C, true);
 
   if (parseFloat(sale.paid||0) > 0) {
-    H += R2('المدفوع:', parseFloat(sale.paid).toFixed(2) + ' ' + C);
+    H += SR('المدفوع:', parseFloat(sale.paid).toFixed(2) + ' ' + C);
     if (sale.isDebt) {
       const rem = parseFloat(sale.total||0) - parseFloat(sale.paid||0);
-      if (rem > 0) H += R2('<b>الدين:</b>', rem.toFixed(2) + ' ' + C);
+      if (rem > 0) H += SR('<b>الدين:</b>', rem.toFixed(2) + ' ' + C);
     }
   }
   if (sale.remainingDebt !== undefined && parseFloat(sale.remainingDebt) > 0)
-    H += R2('<b>المتبقي:</b>', parseFloat(sale.remainingDebt).toFixed(2) + ' ' + C);
+    H += SR('<b>المتبقي:</b>', parseFloat(sale.remainingDebt).toFixed(2) + ' ' + C);
 
   H += '<div class="line-d"></div>';
 
@@ -539,20 +531,21 @@ table.items tbody tr + tr { border-top:1px dashed #ccc; }
   // ── باركود نصي ──
   if (pBarcode==='1' && sale.invoiceNumber)
     H += '<div class="ctr" style="font-family:\'Courier New\',monospace;font-size:9pt;letter-spacing:2px;margin:2px 0;">'
-       + '||||| ' + sale.invoiceNumber + ' |||||'
+       + '||||| ' + invNum + ' |||||'
        + '</div>';
 
-  // ── تذييل: رقم الفاتورة + اسم البائع ──
+  // ── التذييل: فاتورة / البائع ──
   H += '<div class="line-s"></div>';
-  H += R2('#' + sale.invoiceNumber, printedBy ? 'بائع: ' + printedBy : '');
+  H += '<div class="ctr sm">فاتورة: #' + invNum + '</div>';
+  if (printedBy)
+    H += '<div class="ctr sm">البائع: ' + printedBy + '</div>';
+  H += '<div class="line-s"></div>';
 
-  // هامش سفلي لقطع الورق الحراري
   H += '<br/><br/>';
   H += '</body></html>';
 
   _thermalPrint(H);
 }
-
 
 
 // ══════════════════════════════════════════════════════════════
