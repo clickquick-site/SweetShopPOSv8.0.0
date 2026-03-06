@@ -362,182 +362,129 @@ async function restoreBackup(input) {
 // ══════════════════════════════════════════════════════════════
 //  Print
 // ══════════════════════════════════════════════════════════════
-async function printInvoice(sale,items) {
+async function printInvoice(sale, items) {
   const g = k => getSetting(k);
   const [sName,sPhone,sAddr,sWelcome,cur,sLogo,pSize,pLogo,pName,pPhone,pAddr,pWelcome,pBarcode] =
     await Promise.all(['storeName','storePhone','storeAddress','storeWelcome','currency',
       'storeLogo','paperSize','printLogo','printName','printPhone','printAddress',
       'printWelcome','printBarcode'].map(g));
 
-  // ── عرض الورق الحراري (mm فعلي) ──
-  const is58    = (pSize === '58mm');
-  const pageW   = is58 ? '58mm' : '80mm';   // حجم @page
-  const bodyW   = is58 ? '54mm' : '72mm';   // عرض body (مع هامش 2mm كل جانب)
+  // ── المستخدم الذي أصدر الفاتورة ──
+  const sess     = getSession();
+  const printedBy = sess ? sess.username : '';
 
-  // ── أعمدة جدول المنتجات (mm) ──
-  // 80mm: اسم=30mm، ك=8mm، سعر=16mm، مجموع=18mm
-  // 58mm: اسم=22mm، ك=7mm، سعر=12mm، مجموع=13mm
-  const cN = is58 ? '22mm' : '30mm';
+  // ── أبعاد الورق ──
+  const is58  = (pSize === '58mm');
+  const pageW = is58 ? '58mm'  : '80mm';
+  // bodyW = pageW − هوامش @page (2mm × 2)
+  const bodyW = is58 ? '54mm'  : '76mm';
+
+  // ── أعمدة جدول المنتجات ──
+  const cN = is58 ? '20mm' : '28mm';
   const cQ = is58 ?  '7mm' :  '8mm';
-  const cP = is58 ? '12mm' : '16mm';
-  const cT = is58 ? '13mm' : '18mm';
+  const cP = is58 ? '13mm' : '19mm';
+  const cT = is58 ? '14mm' : '21mm';
 
   // ── التاريخ والساعة ──
   const D   = new Date(sale.date || Date.now());
-  const p2  = n => ('0'+n).slice(-2);
-  const dateStr = D.getFullYear()+'/'+p2(D.getMonth()+1)+'/'+p2(D.getDate());
-  const timeStr = p2(D.getHours())+':'+p2(D.getMinutes());
+  const p2  = n => ('0' + n).slice(-2);
+  const dateStr = D.getFullYear() + '/' + p2(D.getMonth()+1) + '/' + p2(D.getDate());
+  const timeStr = p2(D.getHours()) + ':' + p2(D.getMinutes());
 
   // ── عنوان الفاتورة ──
   const lbl = sale.debtSettlement && sale.partialSettlement
-    ? 'فاتورة تسديد جزئي #'+sale.invoiceNumber
-    : sale.debtSettlement ? 'فاتورة تسديد #'+sale.invoiceNumber
-    : sale.isDebt         ? 'فاتورة دين #'+sale.invoiceNumber
-    : 'فاتورة #'+sale.invoiceNumber;
+    ? 'فاتورة تسديد جزئي #' + sale.invoiceNumber
+    : sale.debtSettlement ? 'فاتورة تسديد #' + sale.invoiceNumber
+    : sale.isDebt         ? 'فاتورة دين #'   + sale.invoiceNumber
+    : 'فاتورة #' + sale.invoiceNumber;
 
-  const C = cur || 'دج';
+  // ── العملة ──
+  const C = (cur && cur.trim()) ? cur.trim() : 'DA';
 
-  // ══════════════════════════════════════════════
-  // CSS — مُحكم، بدون flex (الطابعات الحرارية لا تدعمه بشكل موثوق)
-  // كل التخطيط بـ width+display:inline-block أو table فقط
-  // ══════════════════════════════════════════════
+  // ════════════════════════════════════════════════════
+  // CSS — كل صفوف المحاذاة بـ <table> ذات عمودين
+  // لأن float+RTL يبتر النص في الطابعات الحرارية
+  // ════════════════════════════════════════════════════
   const css = `
-@page {
-  size: ${pageW} auto;
-  margin: 2mm 2mm;
-}
+@page { size: ${pageW} auto; margin: 2mm 2mm; }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body {
   font-family: Tahoma, Arial, sans-serif;
   font-size: 10pt;
-  color: #000 !important;
-  background: #fff !important;
+  color: #000;
+  background: #fff;
   width: ${bodyW};
   max-width: ${bodyW};
   direction: rtl;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
-/* صف عنوان: رقم الفاتورة يسار — التاريخ يمين */
-.hdr-row {
-  width: 100%;
-  font-size: 9.5pt;
-  font-weight: 900;
-  margin-bottom: 2px;
-}
-.hdr-inv { float: right; }
-.hdr-date { float: left; }
-.clearfix::after { content:''; display:block; clear:both; }
-
+/* صف عمودين: يمين | يسار — بـ table لا float */
+.r2 { width:100%; border-collapse:collapse; table-layout:auto; margin:1.5px 0; }
+.r2 td { padding:0 1px; vertical-align:middle; white-space:nowrap; font-weight:700; font-size:10pt; }
+.r2 .L { text-align:right; }   /* يمين الصفحة (RTL) */
+.r2 .R { text-align:left;  }   /* يسار الصفحة (RTL) */
 /* نص وسط */
-.ctr { text-align: center; display: block; }
-.bold { font-weight: 900; }
-.big  { font-size: 13pt; font-weight: 900; }
-.sm   { font-size: 8pt; }
-
-/* خطوط فاصلة */
-.line-d { border-top: 1.5px solid #000; margin: 3px 0; }
-.line-s { border-top: 1px dashed #000; margin: 2px 0; }
-
-/* صف بيانات (زبون/إجماليات) */
-.row {
-  width: 100%;
-  margin: 1.5px 0;
-  font-size: 10pt;
-  font-weight: 700;
-}
-.row-lbl  { display: inline-block; text-align: right; }
-.row-val  { display: inline-block; float: left; text-align: left; }
-
-/* جدول المنتجات — table layout fixed أضمن بكثير */
-table.items {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 9.5pt;
-  margin: 2px 0;
-}
-table.items thead tr {
-  border-bottom: 1.5px solid #000;
-}
-table.items th {
-  font-weight: 900;
-  padding: 2px 1px;
-  text-align: right;
-  font-size: 9pt;
-  overflow: hidden;
-}
-table.items td {
-  padding: 2px 1px;
-  font-weight: 700;
-  vertical-align: top;
-  font-size: 9.5pt;
-  word-break: break-word;
-  overflow: hidden;
-}
-table.items tbody tr + tr { border-top: 1px dashed #ccc; }
-
-/* أعمدة بعرض mm ثابت */
-.col-n { width: ${cN}; text-align: right; }
-.col-q { width: ${cQ}; text-align: center; }
-.col-p { width: ${cP}; text-align: right; }
-.col-t { width: ${cT}; text-align: right; font-weight: 900; }
-
-/* الإجمالي الكبير */
-.total-row {
-  width: 100%;
-  font-size: 13pt;
-  font-weight: 900;
-  margin: 2px 0;
-}
-.total-lbl { display: inline-block; text-align: right; }
-.total-val { display: inline-block; float: left; text-align: left; }
-
-@media print {
-  * { color: #000 !important; background: transparent !important; }
-}
+.ctr { text-align:center; display:block; }
+.bold { font-weight:900; }
+.big  { font-size:13pt; font-weight:900; }
+.sm   { font-size:8pt; color:#333; }
+/* فواصل */
+.line-d { border-top:1.5px solid #000; margin:3px 0; }
+.line-s { border-top:1px   dashed #000; margin:2px 0; }
+/* جدول المنتجات */
+table.items { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9pt; margin:2px 0; }
+table.items thead tr { border-bottom:1.5px solid #000; }
+table.items th { font-weight:900; padding:2px 1px; text-align:right; overflow:hidden; }
+table.items td { padding:2px 1px; font-weight:700; vertical-align:top; word-break:break-word; overflow:hidden; }
+table.items tbody tr + tr { border-top:1px dashed #ccc; }
+.col-n { width:${cN}; text-align:right; }
+.col-q { width:${cQ}; text-align:center; }
+.col-p { width:${cP}; text-align:right; }
+.col-t { width:${cT}; text-align:right; font-weight:900; }
+/* صف الإجمالي — خط أكبر */
+.r2.big td { font-size:13pt; font-weight:900; }
+@media print { * { color:#000 !important; background:transparent !important; } }
 `;
 
-  // ══════════════════════════════════════════════
-  // بناء HTML — بدون flex، كل صف clearfix
-  // ══════════════════════════════════════════════
-  let H = '<!DOCTYPE html><html dir="rtl"><head>'
+  // دالة مساعدة: صف ذو عمودين بـ table
+  // right = النص الذي يظهر على اليمين في RTL
+  // left  = النص الذي يظهر على اليسار  في RTL
+  const R2 = (right, left, cls='') =>
+    `<table class="r2 ${cls}"><tr>`
+    + `<td class="L">${right}</td>`
+    + `<td class="R">${left}</td>`
+    + `</tr></table>`;
+
+  // ════════════════════════════════════════════════════
+  // بناء HTML
+  // ════════════════════════════════════════════════════
+  let H = '<!DOCTYPE html><html dir="rtl" lang="ar"><head>'
         + '<meta charset="UTF-8">'
-        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
         + '<style>' + css + '</style>'
         + '</head><body>';
 
-  // ── رأس: رقم الفاتورة + التاريخ/وقت في سطر واحد ──
-  H += '<div class="hdr-row clearfix">'
-     + '<span class="hdr-inv">' + lbl + '</span>'
-     + '<span class="hdr-date">' + dateStr + ' ' + timeStr + '</span>'
-     + '</div>';
+  // ── سطر 1: رقم الفاتورة (يمين) | التاريخ + الساعة (يسار) ──
+  H += R2(lbl, dateStr + '\u00a0' + timeStr);
   H += '<div class="line-d"></div>';
 
-  // ── بيانات المتجر (في المنتصف) ──
+  // ── بيانات المتجر ──
   if (pLogo==='1' && sLogo)
     H += '<div class="ctr"><img src="'+sLogo+'" style="max-width:50px;max-height:50px;margin:2px auto;display:block;"/></div>';
   if (pName==='1' && sName)
     H += '<div class="ctr big">'+sName+'</div>';
   if (pPhone==='1' && sPhone)
-    H += '<div class="ctr bold sm">'+sPhone+'</div>';
+    H += '<div class="ctr sm bold">'+sPhone+'</div>';
   if (pAddr==='1' && sAddr)
     H += '<div class="ctr sm">'+sAddr+'</div>';
-
   if ((pLogo==='1'&&sLogo)||(pName==='1'&&sName)||(pPhone==='1'&&sPhone)||(pAddr==='1'&&sAddr))
     H += '<div class="line-d"></div>';
 
   // ── بيانات الزبون ──
   if (sale.customerName) {
-    H += '<div class="row clearfix">'
-       + '<span class="row-lbl bold">الزبون:</span>'
-       + '<span class="row-val bold">'+sale.customerName+'</span>'
-       + '</div>';
+    H += R2('<b>الزبون:</b>', sale.customerName);
     if (sale.customerPhone)
-      H += '<div class="row clearfix">'
-         + '<span class="row-lbl">الهاتف:</span>'
-         + '<span class="row-val">'+sale.customerPhone+'</span>'
-         + '</div>';
+      H += R2('الهاتف:', sale.customerPhone);
     H += '<div class="line-d"></div>';
   }
 
@@ -550,13 +497,13 @@ table.items tbody tr + tr { border-top: 1px dashed #ccc; }
      + '</tr></thead><tbody>';
 
   items.forEach(function(item) {
-    const maxLen = is58 ? 13 : 17;
+    const maxLen = is58 ? 12 : 16;
     const nm  = (item.productName||'—').length > maxLen
-                ? (item.productName||'—').slice(0, maxLen-1) + '…'
+                ? (item.productName||'—').slice(0, maxLen-1) + '\u2026'
                 : (item.productName||'—');
-    const up  = parseFloat(item.unitPrice || 0).toFixed(2);
-    const tot = parseFloat(item.total     || 0).toFixed(2);
-    const qty = parseFloat(item.quantity  || 1);
+    const up  = parseFloat(item.unitPrice||0).toFixed(2);
+    const tot = parseFloat(item.total||0).toFixed(2);
+    const qty = parseFloat(item.quantity||1);
     H += '<tr>'
        + '<td class="col-n">'+nm+'</td>'
        + '<td class="col-q">'+qty+'</td>'
@@ -564,45 +511,24 @@ table.items tbody tr + tr { border-top: 1px dashed #ccc; }
        + '<td class="col-t">'+tot+'</td>'
        + '</tr>';
   });
-
   H += '</tbody></table>';
   H += '<div class="line-d"></div>';
 
   // ── الإجماليات ──
-  if (parseFloat(sale.discount||0) > 0) {
-    H += '<div class="row clearfix">'
-       + '<span class="row-lbl bold">الخصم:</span>'
-       + '<span class="row-val bold">- '+parseFloat(sale.discount).toFixed(2)+' '+C+'</span>'
-       + '</div>';
-  }
+  if (parseFloat(sale.discount||0) > 0)
+    H += R2('<b>الخصم:</b>', '&minus; ' + parseFloat(sale.discount).toFixed(2) + ' ' + C);
 
-  // الإجمالي — الأكبر حجماً
-  H += '<div class="total-row clearfix">'
-     + '<span class="total-lbl">الإجمالي:</span>'
-     + '<span class="total-val">'+parseFloat(sale.total||0).toFixed(2)+' '+C+'</span>'
-     + '</div>';
+  H += R2('<b>الإجمالي:</b>', parseFloat(sale.total||0).toFixed(2) + ' ' + C, 'big');
 
   if (parseFloat(sale.paid||0) > 0) {
-    H += '<div class="row clearfix">'
-       + '<span class="row-lbl">المدفوع:</span>'
-       + '<span class="row-val">'+parseFloat(sale.paid).toFixed(2)+' '+C+'</span>'
-       + '</div>';
+    H += R2('المدفوع:', parseFloat(sale.paid).toFixed(2) + ' ' + C);
     if (sale.isDebt) {
-      const remaining = parseFloat(sale.total||0) - parseFloat(sale.paid||0);
-      if (remaining > 0)
-        H += '<div class="row clearfix bold">'
-           + '<span class="row-lbl">الدين:</span>'
-           + '<span class="row-val">'+remaining.toFixed(2)+' '+C+'</span>'
-           + '</div>';
+      const rem = parseFloat(sale.total||0) - parseFloat(sale.paid||0);
+      if (rem > 0) H += R2('<b>الدين:</b>', rem.toFixed(2) + ' ' + C);
     }
   }
-
-  if (sale.remainingDebt !== undefined && parseFloat(sale.remainingDebt) > 0) {
-    H += '<div class="row clearfix bold">'
-       + '<span class="row-lbl">المتبقي:</span>'
-       + '<span class="row-val">'+parseFloat(sale.remainingDebt).toFixed(2)+' '+C+'</span>'
-       + '</div>';
-  }
+  if (sale.remainingDebt !== undefined && parseFloat(sale.remainingDebt) > 0)
+    H += R2('<b>المتبقي:</b>', parseFloat(sale.remainingDebt).toFixed(2) + ' ' + C);
 
   H += '<div class="line-d"></div>';
 
@@ -612,18 +538,21 @@ table.items tbody tr + tr { border-top: 1px dashed #ccc; }
 
   // ── باركود نصي ──
   if (pBarcode==='1' && sale.invoiceNumber)
-    H += '<div class="ctr" style="font-family:Courier New,monospace;font-size:9pt;letter-spacing:2px;margin:2px 0;">'
-       + '|||||  '+sale.invoiceNumber+'  |||||'
+    H += '<div class="ctr" style="font-family:\'Courier New\',monospace;font-size:9pt;letter-spacing:2px;margin:2px 0;">'
+       + '||||| ' + sale.invoiceNumber + ' |||||'
        + '</div>';
 
-  // ── تذييل ──
-  H += '<div class="ctr sm" style="color:#aaa;margin-top:3px;">'+APP_VERSION.name+' v'+APP_VERSION.number+'</div>';
-  H += '<br/><br/>';   // هامش سفلي لضمان القطع الصحيح في الطابعة الحرارية
+  // ── تذييل: رقم الفاتورة + اسم البائع ──
+  H += '<div class="line-s"></div>';
+  H += R2('#' + sale.invoiceNumber, printedBy ? 'بائع: ' + printedBy : '');
 
+  // هامش سفلي لقطع الورق الحراري
+  H += '<br/><br/>';
   H += '</body></html>';
 
   _thermalPrint(H);
 }
+
 
 
 // ══════════════════════════════════════════════════════════════
