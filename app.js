@@ -63,6 +63,7 @@ async function seedDefaults() {
     soundAdd:'1',soundSell:'1',soundButtons:'1',barcodeReader:'1',barcodeAuto:'1',touchKeyboard:'0',
     paperSize:'80mm',printLogo:'1',printName:'1',printPhone:'1',printWelcome:'1',printAddress:'1',printBarcode:'1',
     barcodeFont:'Cairo',barcodeType:'CODE128',barcodeShowStore:'1',barcodeShowName:'1',barcodeShowPrice:'1',
+    barcodeFontSize:'12',barcodeLabelSize:'58x38',
     autoBackup:'1',invoiceNumber:'1',lowStockAlert:'5',expiryAlertDays:'30',lastResetDate:'',dailyCounter:'1',
     notifEnabled:'1',notifInApp:'1',notifLowStock:'1',notifOutStock:'1',notifDebt30:'1',notifExpiry:'1',notifLogin:'1',notifPwdChange:'1',
     emailEnabled:'0',emailSender:'',emailAppPassword:'',emailRecipient:'',emailOnSale:'1',emailOnLowStock:'1',emailOnDebt:'1',emailOnExpiry:'1',emailDailyReport:'1',
@@ -159,7 +160,11 @@ async function resetDailyCounter() { await dbPut('counter',{id:1,number:1,lastRe
 function todayStr() { return new Date().toISOString().split('T')[0]; }
 function _getLocale() { return {ar:'ar-DZ',fr:'fr-FR',en:'en-US'}[localStorage.getItem('posdz_lang')||'ar']||'ar-DZ'; }
 function formatDate(iso,fmt) {
-  if(!iso)return''; const d=new Date(iso),dy=String(d.getDate()).padStart(2,'0'),mo=String(d.getMonth()+1).padStart(2,'0'),yr=d.getFullYear();
+  if(!iso)return'';
+  // إذا كانت القيمة تاريخاً بدون وقت (YYYY-MM-DD) نضيف T00:00 لتجنب UTC off-by-one في UTC+1/+2
+  const dateStr = iso.length===10 ? iso+'T00:00:00' : iso;
+  const d=new Date(dateStr);
+  const dy=String(d.getDate()).padStart(2,'0'),mo=String(d.getMonth()+1).padStart(2,'0'),yr=d.getFullYear();
   if(!fmt||fmt==='DD/MM/YYYY')return`${dy}/${mo}/${yr}`; if(fmt==='MM/DD/YYYY')return`${mo}/${dy}/${yr}`; if(fmt==='YYYY/MM/DD')return`${yr}/${mo}/${dy}`; return`${dy}/${mo}/${yr}`;
 }
 function formatDateTime(iso) { if(!iso)return''; const d=new Date(iso),l=_getLocale(); return d.toLocaleDateString(l)+' '+d.toLocaleTimeString(l,{hour:'2-digit',minute:'2-digit'}); }
@@ -553,6 +558,11 @@ table.items tbody tr + tr { border-top: 1px dashed #999; }
        + '<span class="r">المدفوع:</span>'
        + '<span class="l">'+C+' '+parseFloat(sale.paid).toFixed(2)+'</span>'
        + '</div>';
+    if (parseFloat(sale.change||0) > 0)
+      H += '<div class="row2 paid">'
+         + '<span class="r"><b>الباقي:</b></span>'
+         + '<span class="l">'+C+' '+parseFloat(sale.change).toFixed(2)+'</span>'
+         + '</div>';
     if (sale.isDebt) {
       const rem = parseFloat(sale.total||0) - parseFloat(sale.paid||0);
       if (rem > 0)
@@ -622,17 +632,30 @@ function _silentPrint(html) {
 
 async function printBarcodeLabel(product) {
   const bv=product.barcode||String(product.id);
-  const[sName,cur,bcFont,bcType,showStore,showName,showPrice]=await Promise.all(['storeName','currency','barcodeFont','barcodeType','barcodeShowStore','barcodeShowName','barcodeShowPrice'].map(k=>getSetting(k)));
+  const[sName,cur,bcFont,bcType,showStore,showName,showPrice,rawSize,rawFs]=await Promise.all(
+    ['storeName','currency','barcodeFont','barcodeType','barcodeShowStore','barcodeShowName','barcodeShowPrice','barcodeLabelSize','barcodeFontSize'].map(k=>getSetting(k))
+  );
+  // أبعاد الملصق الحقيقية
+  const sizeMap={'58x38':'58mm 38mm','58x30':'58mm 30mm','58x20':'58mm 20mm','40x30':'40mm 30mm','40x25':'40mm 25mm','38x25':'38mm 25mm','30x20':'30mm 20mm'};
+  const labelSize=sizeMap[rawSize||'58x38']||'58mm 38mm';
+  const [pageW,pageH]=labelSize.split(' ');
+  const bodyW=parseInt(pageW)-4;
+  const baseFontSize=Math.max(6,Math.min(24,parseInt(rawFs)||12));
+  const storeFontSize=Math.max(6,baseFontSize-3);
+  const barcodeFontSize=Math.max(5,baseFontSize-4);
+  const priceFontSize=Math.max(8,baseFontSize+3);
+  const barsH=Math.max(18,parseInt(pageH)-20);
   function buildBars(code){
-    const s=String(code),N=2,W=5,H=45;
-    let b='<div style="width:2px;height:'+H+'px;background:#000"></div><div style="width:2px;height:'+H+'px;background:#fff"></div><div style="width:2px;height:'+H+'px;background:#000"></div><div style="width:2px;height:'+H+'px;background:#fff"></div>';
+    const s=String(code),N=2,W=4,H=barsH;
+    let b='<div style="width:2px;height:'+H+'px;background:#000"></div><div style="width:2px;height:'+H+'px;background:#fff"></div>';
     for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);for(let j=0;j<5;j++){const bl=j%2===0,bit=(c>>(4-j))&1,w=bit?W:N;b+=`<div style="width:${w}px;height:${H}px;background:${bl?'#000':'#fff'}"></div>`;}b+='<div style="width:2px;height:'+H+'px;background:#fff"></div>';}
-    b+='<div style="width:2px;height:'+H+'px;background:#000"></div><div style="width:2px;height:'+H+'px;background:#fff"></div><div style="width:3px;height:'+H+'px;background:#000"></div>';
-    return`<div style="display:flex;align-items:flex-end;justify-content:center;overflow:hidden;max-width:56mm">${b}</div>`;
+    b+='<div style="width:2px;height:'+H+'px;background:#000"></div>';
+    return`<div style="display:flex;align-items:flex-end;justify-content:center;overflow:hidden;max-width:${bodyW}mm;">${b}</div>`;
   }
-  const bars=bcType==='QR'?`<div style="font-size:9px;font-family:monospace;border:2px solid #000;padding:3px">[QR:${bv}]</div>`:buildBars(bv);
-  _silentPrint(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{margin:1mm;size:58mm 38mm;}*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'${bcFont||'Cairo'}',Arial,sans-serif;background:#fff;color:#000;width:56mm;text-align:center;padding:2px 1px;-webkit-print-color-adjust:exact;}.s{font-size:9px;font-weight:800;}.n{font-size:13px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:54mm;}.bc{font-family:'Courier New',monospace;font-size:8px;letter-spacing:3px;font-weight:900;}.pr{font-size:15px;font-weight:900;margin-top:1px;}@media print{*{color:#000!important;}}</style></head><body>${showStore==='1'&&sName?`<div class="s">${sName}</div>`:''}${showName!=='0'?`<div class="n">${product.name}</div>`:''}${bars}<div class="bc">${bv}</div>${showPrice!=='0'?`<div class="pr">${parseFloat(product.sellPrice||0).toFixed(2)} ${cur||'دج'}</div>`:''}</body></html>`);
+  const bars=bcType==='QR'?`<div style="font-size:${barcodeFontSize}px;font-family:monospace;border:2px solid #000;padding:2px;display:inline-block;">[QR:${bv}]</div>`:buildBars(bv);
+  _silentPrint(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{margin:1mm;size:${labelSize};}*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'${bcFont||'Cairo'}',Arial,sans-serif;background:#fff;color:#000;width:${bodyW}mm;text-align:center;padding:1px 1mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}.sn{font-size:${storeFontSize}px;font-weight:800;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:${bodyW}mm;}.pn{font-size:${baseFontSize}px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:${bodyW}mm;}.bc{font-family:'Courier New',monospace;font-size:${barcodeFontSize}px;letter-spacing:1px;font-weight:800;}.pr{font-size:${priceFontSize}px;font-weight:900;margin-top:1px;}@media print{*{color:#000!important;}}</style></head><body>${showStore==='1'&&sName?`<div class="sn">${sName}</div>`:''}${showName!=='0'?`<div class="pn">${product.name}${product.size?' — '+product.size:''}</div>`:''}${bars}<div class="bc">${bv}</div>${showPrice!=='0'?`<div class="pr">${parseFloat(product.sellPrice||0).toFixed(2)} ${cur||'DA'}</div>`:''}</body></html>`);
 }
+
 
 // ══════════════════════════════════════════════════════════════
 //  Sound
@@ -823,7 +846,7 @@ const APP_I18N = {
     saleProduct:'المنتج', saleQty:'الكمية', salePrice:'السعر', saleTotal:'المجموع',
     saleDiscount:'خصم:', saleCustomer:'الزبون:', salePaid:'المبلغ المدفوع:',
     saleBtnCheckout:'تسديد', saleBtnPartial:'جزئي + دين', saleBtnDebt:'دين كامل',
-    saleEmpty:'السلة فارغة', saleTotalLabel:'الإجمالي',
+    saleEmpty:'السلة فارغة', saleTotalLabel:'الإجمالي', saleItemsUnit:'صنف',
     saleModalTitle:'تأكيد البيع', saleBtnPrint:'طباعة الفاتورة',
     saleSelectCustomer:'— اختر الزبون —',
     // الميزان
@@ -924,7 +947,7 @@ const APP_I18N = {
     saleProduct:'Produit', saleQty:'Qté', salePrice:'Prix', saleTotal:'Total',
     saleDiscount:'Remise:', saleCustomer:'Client:', salePaid:'Montant payé:',
     saleBtnCheckout:'Payer', saleBtnPartial:'Partiel + Crédit', saleBtnDebt:'Crédit total',
-    saleEmpty:'Panier vide', saleTotalLabel:'Total',
+    saleEmpty:'Panier vide', saleTotalLabel:'Total', saleItemsUnit:'article(s)',
     saleModalTitle:'Confirmer la vente', saleBtnPrint:'Imprimer la facture',
     saleSelectCustomer:'— Choisir client —',
     scaleWeight:'Poids:', scalePrice:'Prix/kg:', scaleTotal:'Total:',
@@ -1018,7 +1041,7 @@ const APP_I18N = {
     saleProduct:'Product', saleQty:'Qty', salePrice:'Price', saleTotal:'Total',
     saleDiscount:'Discount:', saleCustomer:'Customer:', salePaid:'Paid:',
     saleBtnCheckout:'Pay', saleBtnPartial:'Partial + Debt', saleBtnDebt:'Full Credit',
-    saleEmpty:'Cart is empty', saleTotalLabel:'Total',
+    saleEmpty:'Cart is empty', saleTotalLabel:'Total', saleItemsUnit:'item(s)',
     saleModalTitle:'Confirm Sale', saleBtnPrint:'Print Invoice',
     saleSelectCustomer:'— Select customer —',
     scaleWeight:'Weight:', scalePrice:'Price/kg:', scaleTotal:'Total:',
@@ -1405,6 +1428,34 @@ function notifPasswordChange(username) {
 // ══════════════════════════════════════════════════════════════
 //  Init الرئيسي
 // ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+//  Auto Backup — يحفظ مرة يومياً عند تغيير التاريخ
+// ══════════════════════════════════════════════════════════════
+async function _scheduleAutoBackup() {
+  if (await getSetting('autoBackup') !== '1') return;
+  const lastKey = 'posdz_last_autobackup';
+  const lastDate = localStorage.getItem(lastKey) || '';
+  const today = todayStr();
+  if (lastDate !== today) {
+    // انتظر 5 ثوان لضمان تحميل كل شيء
+    setTimeout(async () => {
+      try {
+        if (await getSetting('autoBackup') !== '1') return;
+        const stores=['users','products','families','customers','suppliers','sales','saleItems','debts','debtPayments','expenses','purchases','settings'];
+        const bk={version:APP_VERSION.number,timestamp:new Date().toISOString(),auto:true};
+        for(const s of stores) bk[s]=await dbGetAll(s);
+        const json = JSON.stringify(bk);
+        // حفظ في localStorage (آخر نسخة فقط لتجنب امتلاء الذاكرة)
+        try { localStorage.setItem('posdz_autobackup_data', json); } catch(e) {}
+        localStorage.setItem(lastKey, today);
+        _pushNotif('autobackup_'+today,'💾','نسخة احتياطية تلقائية',`تم حفظ النسخة الاحتياطية ليوم ${today}`,'success');
+      } catch(e) {}
+    }, 5000);
+  }
+  // فحص كل ساعة
+  setTimeout(_scheduleAutoBackup, 60 * 60 * 1000);
+}
+
 async function initApp() {
   _initSessionTimeout(); // تفعيل إشعار انتهاء الجلسة
   await openDB();
@@ -1413,8 +1464,10 @@ async function initApp() {
   await loadHeaderStoreName();
   startClock();
   initSidebar();
+  _ensureSidebarClosed();
   initVirtualKeyboard();
   initButtonSounds();
   await SYNC.init();
   setTimeout(() => initNotifications(), 1500);
+  _scheduleAutoBackup();
 }
