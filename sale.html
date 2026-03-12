@@ -588,6 +588,39 @@
       pointer-events: none;
     }
 
+    /* الشريط الموحد (صنف + زبون + ديون + إجمالي) */
+    .unified-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      flex-wrap: nowrap;
+    }
+
+    .unified-bar .total-section {
+      margin-right: auto;
+    }
+
+    /* شريط F6 فوق رأس السلة */
+    .cart-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      padding: 6px 15px 0;
+      background: var(--bg-dark);
+    }
+
+    .f6-toolbar-btn {
+      background: rgba(34,211,238,0.1);
+      color: #22D3EE;
+      border-color: #22D3EE;
+      padding: 5px 12px;
+      font-size: 0.8rem;
+    }
+
+
     .debt-btn {
       background: rgba(239, 68, 68, 0.1);
       border: 1px solid rgba(239, 68, 68, 0.3);
@@ -863,6 +896,55 @@
     </div>
     
     <!-- شريط الميزان (مخفي افتراضياً) -->
+    <!-- منطقة السلة (مع زر طارئ F6 في الأعلى) -->
+    <div class="cart-area">
+      <div class="cart-toolbar">
+        <button class="debt-btn f6-toolbar-btn" onclick="openF6Modal()">
+          <span style="background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px; font-family:monospace;">F6</span>
+          <i class="fa-solid fa-bolt"></i> طارئ
+        </button>
+      </div>
+      <div class="cart-header">
+        <span>العائلة / المنتج</span>
+        <span style="text-align:center; white-space:nowrap;">الحجم / الوحدة</span>
+        <span style="text-align:center;">سعر الشراء</span>
+        <span style="text-align:center;">المخزون</span>
+        <span style="text-align:center;">الكمية</span>
+        <span style="text-align:center;">السعر</span>
+        <span style="text-align:center;">المجموع</span>
+        <span style="text-align:center;"></span>
+      </div>
+      <div class="cart-items" id="cartItems">
+        <!-- سيتم ملؤها ديناميكياً -->
+      </div>
+    </div>
+    
+    <!-- الشريط الموحد: صنف + زبون + ديون + الإجمالي -->
+    <div class="unified-bar">
+      <span class="items-count" id="itemsCount">0 صنف</span>
+      
+      <div class="customer-select">
+        <select id="customerSelect">
+          <option value="">-- اختر الزبون --</option>
+        </select>
+      </div>
+      
+      <button class="debt-btn" onclick="quickDebtLookup()">
+        <i class="fa-solid fa-magnifying-glass-dollar"></i> ديون
+      </button>
+      
+      <!-- حقول مخفية — ضرورية للكود (partialPayment / clearCart / resumeHeldSale) -->
+      <input type="number" id="paidInput" style="display:none;" value="0" min="0" step="0.01"/>
+      <input type="number" id="discountInput" style="display:none;" value="0" min="0" step="0.01"/>
+      
+      <div class="total-section">
+        <span class="total-label">الإجمالي</span>
+        <span class="total-amount" id="totalAmount">0.00 DA</span>
+        <span class="discount-badge" id="discountBadge"></span>
+      </div>
+    </div>
+    
+    <!-- شريط الميزان (يظهر فقط عند الاتصال — بعد ديون) -->
     <div class="scale-bar" id="scaleBar">
       <div class="scale-status">
         <div class="scale-dot" id="scaleDot"></div>
@@ -877,67 +959,6 @@
       </button>
       <button class="btn btn-sm btn-secondary" onclick="toggleScale()" id="scaleConnectBtn">
         <i class="fa-solid fa-plug"></i> اتصال
-      </button>
-    </div>
-    
-    <!-- منطقة السلة -->
-    <div class="cart-area">
-      <div class="cart-header">
-        <span>العائلة / المنتج</span>
-        <span style="text-align:center;">الحجم / الوحدة</span>
-        <span style="text-align:center;">سعر الشراء</span>
-        <span style="text-align:center;">المخزون</span>
-        <span style="text-align:center;">الكمية</span>
-        <span style="text-align:center;">السعر</span>
-        <span style="text-align:center;">المجموع</span>
-        <span style="text-align:center;"></span>
-      </div>
-      <div class="cart-items" id="cartItems">
-        <!-- سيتم ملؤها ديناميكياً -->
-      </div>
-    </div>
-    
-    <!-- الشريط السفلي (الإجمالي والخصم) -->
-    <div class="bottom-bar">
-      <span class="items-count" id="itemsCount">0 صنف</span>
-      
-      <div class="discount-section">
-        <label>خصم:</label>
-        <input type="number" id="discountInput" placeholder="0.00" min="0" step="0.01"/>
-        <div class="discount-pills">
-          <button class="disc-pill" onclick="applyDiscountPercent(1)">1%</button>
-          <button class="disc-pill" onclick="applyDiscountPercent(2)">2%</button>
-          <button class="disc-pill" onclick="applyDiscountPercent(5)">5%</button>
-          <button class="disc-pill" onclick="applyDiscountPercent(10)">10%</button>
-        </div>
-      </div>
-      
-      <div class="total-section">
-        <span class="total-label">الإجمالي</span>
-        <span class="total-amount" id="totalAmount">0.00 DA</span>
-        <span class="discount-badge" id="discountBadge"></span>
-      </div>
-    </div>
-    
-    <!-- صف الزبون والدفع -->
-    <div class="customer-row">
-      <label>المبلغ المدفوع:</label>
-      <input type="number" id="paidInput" placeholder="0.00" min="0" step="0.01"/>
-      
-      <label>الزبون:</label>
-      <div class="customer-select">
-        <select id="customerSelect">
-          <option value="">-- اختر الزبون --</option>
-        </select>
-      </div>
-      
-      <button class="debt-btn" onclick="quickDebtLookup()">
-        <i class="fa-solid fa-magnifying-glass-dollar"></i> ديون
-      </button>
-      
-      <button class="debt-btn" onclick="openF6Modal()" style="background:rgba(34,211,238,0.1); color:#22D3EE; border-color:#22D3EE;">
-        <span style="background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px; font-family:monospace;">F6</span>
-        <i class="fa-solid fa-bolt"></i> طارئ
       </button>
     </div>
     
@@ -1523,7 +1544,7 @@ async function loadCustomerSelect() {
   allCustomers.forEach(c => {
     const option = document.createElement('option');
     option.value = c.id;
-    option.textContent = `${c.name}${c.phone ? ' (' + c.phone + ')' : ''}`;
+    option.textContent = c.name;
     select.appendChild(option);
   });
 }
