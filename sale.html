@@ -869,8 +869,8 @@
     <!-- منطقة السلة -->
     <div class="cart-area">
       <div class="cart-header">
-        <span>المنتج / العائلة</span>
-        <span style="text-align:center;">الحجم</span>
+        <span>العائلة / المنتج</span>
+        <span style="text-align:center;">الحجم / الوحدة</span>
         <span style="text-align:center;">سعر الشراء</span>
         <span style="text-align:center;">المخزون</span>
         <span style="text-align:center;">الكمية</span>
@@ -1248,12 +1248,12 @@ function renderCart() {
     return `
       <div class="cart-item">
         <div class="product-info">
-          <span class="product-name">${window.sanitizer.escape(item.name)}</span>
           ${item.familyName ? `<span class="product-family">${window.sanitizer.escape(item.familyName)}</span>` : ''}
+          <span class="product-name">${window.sanitizer.escape(item.name)}</span>
         </div>
         
         <div style="text-align:center; color:var(--text-secondary);">
-          ${item.size || '—'}
+          ${item.size ? window.sanitizer.escape(item.size) + (item.unit ? ' ' + window.sanitizer.escape(item.unit) : '') : (item.unit ? window.sanitizer.escape(item.unit) : '—')}
         </div>
         
         <div style="text-align:center; color:#60a5fa;">
@@ -1308,6 +1308,7 @@ function addToCart(product, quantity = null) {
       name: product.name,
       familyName: product.familyName,
       size: product.size,
+      unit: product.unit || '',
       quantity: qty,
       unitPrice: product.sellPrice,
       buyPrice: product.buyPrice,
@@ -1452,7 +1453,7 @@ function initSearch() {
         
         return `
           <div class="autocomplete-item" onclick="selectProduct(${p.id})">
-            <span class="product-name">${window.sanitizer.escape(p.name)}${p.size ? ' — ' + window.sanitizer.escape(p.size) : ''}</span>
+            <span class="product-name">${window.sanitizer.escape(p.name)}</span>
             <div style="display:flex; align-items:center; gap:10px;">
               <span class="product-stock" style="color:${available <= 0 ? 'var(--danger)' : available <= 5 ? 'var(--warning)' : 'var(--text-secondary)'}">
                 📦 ${available}
@@ -1725,7 +1726,7 @@ async function confirmSale(print = true) {
   const change = received > total ? received - total : 0;
   const customerId = parseInt(document.getElementById('customerSelect').value) || null;
   
-  if (paid < total && customerId === null) {
+  if (received > 0 && paid < total && customerId === null) {
     window.toast.show('يجب اختيار زبون للدفع الجزئي', 'warning');
     return;
   }
