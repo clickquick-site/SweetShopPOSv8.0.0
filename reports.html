@@ -1537,9 +1537,9 @@ async function loadDashboard() {
   const todayRevenue = todaySales.reduce((sum, s) => sum + (s.paid || 0), 0);
   const yesterdayRevenue = yesterdaySales.reduce((sum, s) => sum + (s.paid || 0), 0);
   
-  // حساب التكلفة
+  // حساب التكلفة — فقط على المبيعات المقبوضة (paid > 0)، الديون لا تُحسب تكلفتها بعد
   let todayCost = 0;
-  for (const sale of todaySales) {
+  for (const sale of todaySales.filter(s => (s.paid || 0) > 0)) {
     const items = allItems.filter(i => i.saleId === sale.id);
     for (const item of items) {
       const product = allProducts.find(p => p.id === item.productId);
@@ -1551,7 +1551,7 @@ async function loadDashboard() {
   const todayExpenses = allExpenses.filter(e => e.date?.startsWith(today));
   const expensesTotal = todayExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   
-  // صافي الربح
+  // صافي الربح — يعكس فقط ما قُبض فعلاً
   const todayProfit = todayRevenue - todayCost - expensesTotal;
   
   // ديون اليوم
@@ -2012,9 +2012,9 @@ async function loadDailyReport() {
   const dayExpenses = allExpenses.filter(e => e.date?.startsWith(date));
   const expensesTotal = dayExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   
-  // حساب التكلفة
+  // حساب التكلفة — فقط على المبيعات المقبوضة (paid > 0)
   let cost = 0;
-  for (const sale of daySales) {
+  for (const sale of daySales.filter(s => (s.paid || 0) > 0)) {
     const items = allItems.filter(i => i.saleId === sale.id);
     for (const item of items) {
       const product = allProducts.find(p => p.id === item.productId);
@@ -2364,9 +2364,9 @@ async function loadAccounting() {
   const revenue = daySales.reduce((sum, s) => sum + (s.paid || 0), 0);
   const count = daySales.length;
   
-  // حساب التكلفة
+  // حساب التكلفة — فقط على المبيعات المقبوضة (paid > 0)
   let cost = 0;
-  for (const sale of daySales) {
+  for (const sale of daySales.filter(s => (s.paid || 0) > 0)) {
     const items = allItems.filter(i => i.saleId === sale.id);
     for (const item of items) {
       const product = allProducts.find(p => p.id === item.productId);
